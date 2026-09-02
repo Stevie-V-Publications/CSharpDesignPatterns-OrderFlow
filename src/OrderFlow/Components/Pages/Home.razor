@@ -1,0 +1,87 @@
+@page "/"
+
+<PageTitle>OrderFlow</PageTitle>
+
+<div class="page-header">
+    <h3 class="page-title">
+        <span class="page-title-icon bg-gradient-primary text-white me-2">
+            <i class="mdi mdi-home-variant"></i>
+        </span>
+        OrderFlow
+    </h3>
+    <nav aria-label="breadcrumb">
+        <ul class="breadcrumb">
+            <li class="breadcrumb-item active" aria-current="page">
+                <span>Design Patterns Showcase</span>
+            </li>
+        </ul>
+    </nav>
+</div>
+
+<div class="row">
+    <div class="col-lg-12 grid-margin stretch-card">
+        <div class="card">
+            <div class="card-body">
+                <h4 class="card-title">One app, ten patterns</h4>
+                <p class="card-description">
+                    A multi-restaurant food delivery and kitchen ops platform, built to
+                    showcase 10 classic design patterns inside one real Blazor Server
+                    application &mdash; not ten disconnected toy demos.
+                </p>
+                <p class="text-muted">
+                    Every pattern shows up twice: isolated in the Pattern Playground so you
+                    can study it on its own, and again &ldquo;in the wild&rdquo; powering a
+                    real feature. No pineapple on this pizza &mdash; just clean seams.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-4 grid-margin stretch-card">
+        <div class="card">
+            <div class="card-body">
+                <div class="d-flex align-items-center mb-3">
+                    <i class="mdi mdi-puzzle icon-lg text-primary me-3"></i>
+                    <h5 class="mb-0">Pattern Playground</h5>
+                </div>
+                <p class="text-muted">
+                    Each pattern demoed in isolation, matching its book chapter, with a link
+                    to where it&rsquo;s used in the real flow.
+                </p>
+                <a href="patterns" class="btn btn-gradient-primary btn-sm">Open playground</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4 grid-margin stretch-card">
+        <div class="card">
+            <div class="card-body">
+                <div class="d-flex align-items-center mb-3">
+                    <i class="mdi mdi-silverware-fork-knife icon-lg text-success me-3"></i>
+                    <h5 class="mb-0">Customer Ordering</h5>
+                </div>
+                <p class="text-muted">
+                    Composite (menu tree), Decorator (add-ons), Builder (order assembly) and
+                    Facade (one <em>Place Order</em> call) all running together.
+                </p>
+                <a href="order" class="btn btn-gradient-success btn-sm">Start an order</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4 grid-margin stretch-card">
+        <div class="card">
+            <div class="card-body">
+                <div class="d-flex align-items-center mb-3">
+                    <i class="mdi mdi-stove icon-lg text-warning me-3"></i>
+                    <h5 class="mb-0">Kitchen &amp; Dispatch</h5>
+                </div>
+                <p class="text-muted">
+                    Observer + SignalR push live order-status changes to the Kitchen Display
+                    and Admin Dashboard as State transitions fire.
+                </p>
+                <a href="kitchen" class="btn btn-gradient-warning btn-sm">Open kitchen</a>
+            </div>
+        </div>
+    </div>
+</div>

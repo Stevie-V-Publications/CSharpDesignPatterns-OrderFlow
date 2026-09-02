@@ -1,0 +1,175 @@
+@page "/kitchen"
+@implements IOrderStatusObserver
+@implements IDisposable
+@inject KitchenDisplayService Kitchen
+@inject OrderStatusPublisher Publisher
+@inject IServiceProvider ServiceProvider
+
+<PageTitle>Kitchen Display &mdash; OrderFlow</PageTitle>
+
+<h1>Kitchen Display &mdash; @restaurant.Name</h1>
+<p class="text-muted">
+    The "in the wild" home of <strong>Singleton</strong> (this board and
+    every other surface share one <code>KitchenQueue</code> per
+    restaurant), <strong>State</strong> (each ticket advances through the
+    order lifecycle), and <strong>Observer</strong> (status changes
+    broadcast to every subscribed screen &mdash; open this page in a
+    second tab and watch them stay in sync).
+</p>
+
+<div class="mb-3">
+    <button class="btn btn-primary" @onclick="AddIncomingOrder">Simulate incoming order</button>
+    <span class="ms-2 small text-muted">
+        Orders placed on the <a href="order">customer ordering</a> page land here too &mdash;
+        same singleton queue.
+    </span>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <h4>Queue (@tickets.Count)</h4>
+        @if (tickets.Count == 0)
+        {
+            <p class="text-muted">Kitchen queue is empty.</p>
+        }
+        else
+        {
+            <ol class="list-group list-group-numbered">
+                @foreach (var ticket in tickets)
+                {
+                    <li class="list-group-item d-flex justify-content-between align-items-start">
+                        <div>
+                            <div><strong>@ticket.Summary</strong></div>
+                            <div class="small text-muted">
+                                #@ticket.OrderId.ToString()[..8] &mdash; received @ticket.ReceivedAt.ToLocalTime().ToString("T")
+                            </div>
+                            <span class="badge @StatusClass(ticket.Status)">@ticket.Status</span>
+                        </div>
+                        <div class="text-nowrap">
+                            <button class="btn btn-sm btn-outline-primary"
+                                    disabled="@IsTerminal(ticket.Status)"
+                                    @onclick="() => Advance(ticket)">
+                                Advance &rarr;
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => Bump(ticket)">
+                                Bump
+                            </button>
+                        </div>
+                    </li>
+                }
+            </ol>
+        }
+    </div>
+
+    <div class="col-md-4">
+        <h4>Status feed</h4>
+        <p class="small text-muted">
+            Every <code>OrderStatusChange</code> this board hears, via
+            <code>OrderStatusPublisher</code>. @Publisher.ObserverCount screen(s) subscribed.
+        </p>
+        @if (feed.Count == 0)
+        {
+            <p class="text-muted">No status changes yet.</p>
+        }
+        else
+        {
+            <ul class="list-group">
+                @foreach (var line in feed)
+                {
+                    <li class="list-group-item small">@line</li>
+                }
+            </ul>
+        }
+    </div>
+</div>
+
+@code {
+    private readonly Restaurant restaurant = SampleData.Restaurant;
+    private KitchenQueue queue = default!;
+    private IDisposable? subscription;
+
+    private IReadOnlyList<KitchenTicket> tickets = [];
+    private readonly List<string> feed = [];
+
+    protected override void OnInitialized()
+    {
+        // Singleton: the same KitchenQueue instance every other surface holds.
+        queue = Kitchen.QueueFor(restaurant);
+        tickets = queue.Snapshot();
+
+        // Observer: subscribe now, drop the subscription in Dispose.
+        subscription = Publisher.Subscribe(this);
+    }
+
+    // Observer callback — may arrive on another circuit's thread.
+    void IOrderStatusObserver.OnOrderStatusChanged(OrderStatusChange change)
+    {
+        feed.Insert(0, $"{change.ChangedAt.ToLocalTime():T}  #{change.OrderId.ToString()[..8]}  {change.Previous} → {change.Current}");
+        tickets = queue.Snapshot();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void AddIncomingOrder()
+    {
+        // Builder (Pattern 1): a throwaway sample order to route to the kitchen.
+        var order = ServiceProvider.GetRequiredService<OrderBuilder>()
+            .ForCustomer(SampleData.Customer)
+            .FromRestaurant(restaurant)
+            .AsPickup()
+            .AddItem(new OrderItem { MenuItem = SampleData.MenuItems[Random.Shared.Next(SampleData.MenuItems.Count)] })
+            .Build();
+
+        var summary = string.Join(", ", order.Items.Select(i => i.GetDescription()));
+        queue.Enqueue(KitchenTicket.For(order.Id, summary));
+        tickets = queue.Snapshot();
+
+        Publisher.Publish(OrderStatusChange.Between(order.Id, OrderStatus.Placed, OrderStatus.Confirmed));
+    }
+
+    private void Advance(KitchenTicket ticket)
+    {
+        var previous = ticket.Status;
+
+        // State (Pattern 9): the current state object decides what's next.
+        IOrderState next;
+        try
+        {
+            next = OrderStateMachine.ForStatus(ticket.Status).Advance();
+        }
+        catch (InvalidOperationException)
+        {
+            return; // terminal state — button is disabled anyway
+        }
+
+        ticket.Status = next.Status;
+        if (next.Status is OrderStatus.Completed)
+            queue.Remove(ticket.OrderId);
+
+        tickets = queue.Snapshot();
+
+        // Observer: tell every screen.
+        Publisher.Publish(OrderStatusChange.Between(ticket.OrderId, previous, next.Status));
+    }
+
+    private void Bump(KitchenTicket ticket)
+    {
+        queue.Remove(ticket.OrderId);
+        tickets = queue.Snapshot();
+        Publisher.Publish(OrderStatusChange.Between(ticket.OrderId, ticket.Status, OrderStatus.Completed));
+    }
+
+    private static bool IsTerminal(OrderStatus status) =>
+        status is OrderStatus.Completed or OrderStatus.Cancelled;
+
+    private static string StatusClass(OrderStatus status) => status switch
+    {
+        OrderStatus.Confirmed => "bg-secondary",
+        OrderStatus.Preparing => "bg-warning text-dark",
+        OrderStatus.Ready => "bg-success",
+        OrderStatus.OutForDelivery => "bg-info text-dark",
+        OrderStatus.Completed => "bg-dark",
+        _ => "bg-light text-dark",
+    };
+
+    public void Dispose() => subscription?.Dispose();
+}

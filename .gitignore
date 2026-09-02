@@ -1,0 +1,15 @@
+bin/
+obj/
+*.db
+*.db-shm
+*.db-wal
+.vs/
+
+# Book manuscript — not part of the shipped codebase
+book/
+
+# Claude Code context / config — local only
+CLAUDE.md
+**/CLAUDE.md
+.claude/
+**/.claude/

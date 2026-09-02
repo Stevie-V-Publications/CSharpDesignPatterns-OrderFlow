@@ -1,0 +1,87 @@
+@implements IDisposable
+@inject NavigationManager Nav
+@inject PersonaContext PersonaCtx
+
+<nav class="sidebar sidebar-offcanvas" id="sidebar">
+    <ul class="nav">
+        <li class="nav-item nav-category"><span class="nav-link">Overview</span></li>
+        @foreach (var link in Overview)
+        {
+            @NavItem(link)
+        }
+
+        <li class="nav-item nav-category"><span class="nav-link">In the wild</span></li>
+        @foreach (var link in InTheWild)
+        {
+            @NavItem(link)
+        }
+
+        <li class="nav-item nav-category"><span class="nav-link">Reference</span></li>
+        <li class="nav-item menu-items">
+            <a class="nav-link" href="https://github.com" target="_blank" rel="noopener">
+                <span class="menu-icon"><i class="mdi mdi-book-open-page-variant"></i></span>
+                <span class="menu-title">The Book</span>
+            </a>
+        </li>
+    </ul>
+</nav>
+
+@code {
+    private record Link(string Path, string Icon, string Title, bool Exact = false);
+
+    private static readonly Link[] Overview =
+    [
+        new("", "mdi-home-variant", "Home", Exact: true),
+        new("patterns", "mdi-puzzle", "Pattern Playground"),
+    ];
+
+    private static readonly Link[] InTheWild =
+    [
+        new("order", "mdi-silverware-fork-knife", "Customer Ordering"),
+        new("track", "mdi-map-marker-path", "Order Tracker"),
+        new("kitchen", "mdi-stove", "Kitchen Display"),
+        new("dispatch", "mdi-moped", "Dispatch Dashboard"),
+        new("admin", "mdi-view-dashboard", "Admin Dashboard"),
+    ];
+
+    protected override void OnInitialized()
+    {
+        Nav.LocationChanged += OnStateChanged;
+        PersonaCtx.Changed += OnChanged;
+    }
+
+    private void OnStateChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+        => InvokeAsync(StateHasChanged);
+
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+
+    // Persona gates which surfaces are even listed (not real auth — a UI role switcher).
+    private RenderFragment NavItem(Link link)
+    {
+        return @<text>
+            @if (PersonaContext.CanAccess(PersonaCtx.Current, link.Path))
+            {
+                <li class="nav-item menu-items @ActiveClass(link)">
+                    <NavLink class="nav-link" href="@link.Path" Match="@(link.Exact ? NavLinkMatch.All : NavLinkMatch.Prefix)">
+                        <span class="menu-icon"><i class="mdi @link.Icon"></i></span>
+                        <span class="menu-title">@link.Title</span>
+                    </NavLink>
+                </li>
+            }
+        </text>;
+    }
+
+    // Corona highlights the whole <li>; NavLink only marks the inner <a>.
+    private string ActiveClass(Link link)
+    {
+        var rel = Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0].Trim('/');
+        var match = link.Exact ? rel == link.Path : rel == link.Path || rel.StartsWith(link.Path + "/");
+        return match ? "active" : string.Empty;
+    }
+
+    public void Dispose()
+    {
+        Nav.LocationChanged -= OnStateChanged;
+        PersonaCtx.Changed -= OnChanged;
+    }
+}

@@ -1,0 +1,28 @@
+@using OrderFlow.Components
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OrderFlow &mdash; Design Patterns Showcase</title>
+    <base href="/" />
+
+    <!-- Corona (BootstrapDash) admin template -->
+    <link rel="stylesheet" href="corona/vendors/mdi/css/materialdesignicons.min.css" />
+    <link rel="stylesheet" href="corona/vendors/css/vendor.bundle.base.css" />
+    <link rel="stylesheet" href="corona/vendors/flag-icon-css/css/flag-icon.min.css" />
+    <link rel="stylesheet" href="corona/css/style.css" />
+    <link rel="shortcut icon" href="corona/images/favicon.png" />
+
+    <link rel="stylesheet" href="css/app.css" />
+    <HeadOutlet @rendermode="InteractiveServer" />
+</head>
+<body>
+    <Routes @rendermode="InteractiveServer" />
+
+    <script src="corona/vendors/js/vendor.bundle.base.js"></script>
+    <script src="corona/jquery.cookie.js"></script>
+    <script src="corona/js/corona-init.js"></script>
+    <script src="_framework/blazor.web.js"></script>
+</body>
+</html>

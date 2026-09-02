@@ -1,0 +1,201 @@
+@page "/track"
+@page "/track/{OrderId:guid}"
+@implements IOrderStatusObserver
+@implements IDisposable
+@inject OrderStatusPublisher Publisher
+@inject KitchenDisplayService Kitchen
+@inject OrderHistoryService History
+
+<PageTitle>Track your order &mdash; OrderFlow</PageTitle>
+
+<div class="page-header">
+    <h3 class="page-title">
+        <span class="page-title-icon bg-gradient-primary text-white me-2">
+            <i class="mdi mdi-map-marker-path"></i>
+        </span>
+        Track your order
+    </h3>
+</div>
+
+<p class="text-muted">
+    The customer-facing home of <strong>Observer</strong>: this page calls
+    <code>OrderStatusPublisher.Subscribe</code> once and then re-renders
+    itself every time the kitchen advances your order &mdash; no polling, no
+    refresh. Open the <a href="kitchen">Kitchen Display</a> in another tab and
+    hit <em>Advance</em> to watch it move here live. (<code>Patterns/08-Observer</code>)
+</p>
+
+@if (order is null)
+{
+    <div class="row">
+        <div class="col-md-8 grid-margin stretch-card">
+            <div class="card">
+                <div class="card-body">
+                    <h4 class="card-title">No order to track</h4>
+                    <p class="card-description">
+                        We couldn't find a recent order. Place one first and we'll
+                        follow it from the kitchen to your door.
+                    </p>
+                    <a href="order" class="btn btn-gradient-primary btn-sm">Start an order</a>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+else
+{
+    <div class="row">
+        <div class="col-lg-8 grid-margin stretch-card">
+            <div class="card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start flex-wrap">
+                        <div>
+                            <h4 class="card-title mb-1">Order #@OrderId.ToString()[..8]</h4>
+                            <p class="text-muted mb-0">@order.RestaurantName &bull; @order.Fulfillment</p>
+                        </div>
+                        <span class="badge @StatusBadge(currentStatus) badge-pill">@currentStatus</span>
+                    </div>
+
+                    <div class="alert alert-info mt-3 mb-4">
+                        <i class="mdi mdi-information-outline me-1"></i>
+                        @OrderStateMachine.ForStatus(currentStatus).CustomerMessage
+                    </div>
+
+                    @if (currentStatus is not OrderStatus.Cancelled)
+                    {
+                        <ul class="tracker-steps list-unstyled">
+                            @foreach (var stage in Stages)
+                            {
+                                var state = StageState(stage);
+                                <li class="tracker-step @state">
+                                    <span class="tracker-dot">
+                                        <i class="mdi @(state == "done" ? "mdi-check" : "mdi-circle-medium")"></i>
+                                    </span>
+                                    <span class="tracker-label">@Label(stage)</span>
+                                </li>
+                            }
+                        </ul>
+                    }
+
+                    <div class="text-muted small mt-3">
+                        Placed @DateTime.SpecifyKind(order.PlacedAtUtc, DateTimeKind.Utc).ToLocalTime().ToString("g")
+                        &bull; @order.Items
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4 grid-margin stretch-card">
+            <div class="card">
+                <div class="card-body">
+                    <h4 class="card-title">Live updates</h4>
+                    <p class="small text-muted">
+                        Each line is one <code>OrderStatusChange</code> the publisher
+                        pushed to this screen.
+                    </p>
+                    @if (feed.Count == 0)
+                    {
+                        <p class="text-muted">Waiting for the kitchen&hellip;</p>
+                    }
+                    else
+                    {
+                        <ul class="list-group list-group-flush">
+                            @foreach (var line in feed)
+                            {
+                                <li class="list-group-item px-0 small">@line</li>
+                            }
+                        </ul>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid OrderId { get; set; }
+
+    private static readonly OrderStatus[] Stages =
+    [
+        OrderStatus.Placed, OrderStatus.Confirmed, OrderStatus.Preparing,
+        OrderStatus.Ready, OrderStatus.OutForDelivery, OrderStatus.Completed,
+    ];
+
+    private readonly Restaurant restaurant = SampleData.Restaurant;
+    private IDisposable? subscription;
+
+    private PlacedOrderRecord? order;
+    private OrderStatus currentStatus = OrderStatus.Placed;
+    private readonly List<string> feed = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Observer: subscribe for the life of the page.
+        subscription = Publisher.Subscribe(this);
+
+        if (OrderId == Guid.Empty)
+        {
+            // No id in the URL — track the customer's most recent order.
+            order = (await History.RecentAsync(1)).FirstOrDefault();
+            if (order is not null)
+                OrderId = order.Id;
+        }
+        else
+        {
+            order = (await History.RecentAsync(50)).FirstOrDefault(o => o.Id == OrderId);
+        }
+
+        if (order is null)
+            return;
+
+        // Source of truth for "where is it now": the live kitchen ticket if
+        // one still exists, otherwise the status snapshot saved at checkout.
+        var ticket = Kitchen.QueueFor(restaurant).Snapshot().FirstOrDefault(t => t.OrderId == OrderId);
+        currentStatus = ticket?.Status
+            ?? (Enum.TryParse<OrderStatus>(order.Status, out var s) ? s : OrderStatus.Placed);
+    }
+
+    // Observer callback — arrives on whichever circuit raised the change.
+    void IOrderStatusObserver.OnOrderStatusChanged(OrderStatusChange change)
+    {
+        if (change.OrderId != OrderId)
+            return; // not our order — every screen hears every change
+
+        currentStatus = change.Current;
+        feed.Insert(0, $"{change.ChangedAt.ToLocalTime():T}  {change.Previous} → {change.Current}");
+        InvokeAsync(StateHasChanged);
+    }
+
+    private string StageState(OrderStatus stage)
+    {
+        var currentIndex = Array.IndexOf(Stages, currentStatus);
+        var stageIndex = Array.IndexOf(Stages, stage);
+        if (currentIndex < 0) return "";
+        if (stageIndex < currentIndex) return "done";
+        if (stageIndex == currentIndex) return "current";
+        return "todo";
+    }
+
+    private static string Label(OrderStatus status) => status switch
+    {
+        OrderStatus.Placed => "Order placed",
+        OrderStatus.Confirmed => "Restaurant confirmed",
+        OrderStatus.Preparing => "In the kitchen",
+        OrderStatus.Ready => "Ready",
+        OrderStatus.OutForDelivery => "Out for delivery",
+        OrderStatus.Completed => "Delivered",
+        _ => status.ToString(),
+    };
+
+    private static string StatusBadge(OrderStatus status) => status switch
+    {
+        OrderStatus.Preparing => "badge-warning",
+        OrderStatus.Ready => "badge-success",
+        OrderStatus.OutForDelivery => "badge-info",
+        OrderStatus.Completed => "badge-success",
+        OrderStatus.Cancelled => "badge-danger",
+        _ => "badge-secondary",
+    };
+
+    public void Dispose() => subscription?.Dispose();
+}

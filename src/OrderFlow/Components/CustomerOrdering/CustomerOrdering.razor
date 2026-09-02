@@ -1,0 +1,295 @@
+@page "/order"
+@inject IServiceProvider ServiceProvider
+@inject OrderHistoryService History
+@inject PersonaContext PersonaCtx
+
+<PageTitle>Order &mdash; OrderFlow</PageTitle>
+
+<h1>Order from @restaurant.Name</h1>
+<p class="text-muted">
+    The customer ordering flow &mdash; the "in the wild" home of
+    <strong>Composite</strong> (the menu tree), <strong>Decorator</strong>
+    (per-item add-ons), <strong>Builder</strong> (assembling the order),
+    and <strong>Facade</strong> (one <code>Place Order</code> call).
+</p>
+
+<ul class="nav nav-pills mb-3">
+    <li class="nav-item"><span class="nav-link @(step == Step.Menu ? "active" : "")">1. Menu</span></li>
+    <li class="nav-item"><span class="nav-link @(step == Step.Review ? "active" : "")">2. Review</span></li>
+    <li class="nav-item"><span class="nav-link @(step == Step.Done ? "active" : "")">3. Confirmation</span></li>
+</ul>
+
+@if (step == Step.Menu)
+{
+    <div class="row">
+        <div class="col-md-7">
+            @* Composite: walk the menu tree — categories hold leaves and combos. *@
+            @foreach (var category in menu.Children.OfType<MenuComposite>())
+            {
+                <h4 class="mt-3">@category.Name</h4>
+                <ul class="list-group">
+                    @foreach (var child in category.Children)
+                    {
+                        @if (child is ComboMeal combo)
+                        {
+                            <li class="list-group-item">
+                                <div class="d-flex justify-content-between">
+                                    <div>
+                                        <strong>@combo.Name</strong>
+                                        <span class="badge bg-success ms-1">saves @combo.Discount.ToString("C")</span>
+                                        <div class="text-muted small">
+                                            @string.Join(" + ", combo.Children.Select(c => c.Name))
+                                        </div>
+                                    </div>
+                                    <div class="text-end">
+                                        <div><strong>@combo.Price.ToString("C")</strong></div>
+                                        <button class="btn btn-sm btn-outline-primary" @onclick="() => AddCombo(combo)">Add combo</button>
+                                    </div>
+                                </div>
+                            </li>
+                        }
+                        else if (child is MenuLeaf leaf)
+                        {
+                            <li class="list-group-item">
+                                <div class="d-flex justify-content-between">
+                                    <div>
+                                        <strong>@leaf.Item.Name</strong> &mdash; @leaf.Item.BasePrice.ToString("C")
+                                        <div class="text-muted small">@leaf.Item.Description</div>
+                                    </div>
+                                    <button class="btn btn-sm btn-outline-primary" @onclick="() => AddItem(leaf.Item)">Add</button>
+                                </div>
+                            </li>
+                        }
+                    }
+                </ul>
+            }
+        </div>
+
+        <div class="col-md-5">
+            <h4>Cart</h4>
+            @if (cart.Count == 0)
+            {
+                <p class="text-muted">Nothing in the cart yet.</p>
+            }
+            else
+            {
+                <ul class="list-group mb-3">
+                    @foreach (var line in cart)
+                    {
+                        <li class="list-group-item">
+                            <div class="d-flex justify-content-between">
+                                <span>@line.ToOrderItem().GetDescription()</span>
+                                <span>
+                                    <strong>@line.ToOrderItem().GetPrice().ToString("C")</strong>
+                                    <button class="btn btn-sm btn-link text-danger p-0 ms-2" @onclick="() => cart.Remove(line)">remove</button>
+                                </span>
+                            </div>
+                            @if (line.Customizable)
+                            {
+                                @* Decorator: each toggle wraps the line item in another IOrderItem. *@
+                                <div class="mt-1 small">
+                                    <label class="me-2"><input type="checkbox" @bind="line.ExtraCheese" /> Extra cheese (+$1.50)</label>
+                                    <label class="me-2"><input type="checkbox" @bind="line.GlutenFree" /> GF crust (+$2.00)</label>
+                                    <label class="me-2"><input type="checkbox" @bind="line.GiftWrap" /> Gift wrap (+10%)</label>
+                                </div>
+                            }
+                        </li>
+                    }
+                </ul>
+                <p class="fs-5"><strong>Subtotal: @Subtotal.ToString("C")</strong></p>
+                <button class="btn btn-primary" @onclick="() => step = Step.Review">Review order &rarr;</button>
+            }
+        </div>
+    </div>
+}
+else if (step == Step.Review)
+{
+    <div class="row">
+        <div class="col-md-7">
+            <h4>Your order</h4>
+            <ul class="list-group mb-3">
+                @foreach (var line in cart)
+                {
+                    var oi = line.ToOrderItem();
+                    <li class="list-group-item d-flex justify-content-between">
+                        <span>@oi.GetDescription()</span><strong>@oi.GetPrice().ToString("C")</strong>
+                    </li>
+                }
+                <li class="list-group-item d-flex justify-content-between">
+                    <span>Subtotal</span><strong>@Subtotal.ToString("C")</strong>
+                </li>
+            </ul>
+        </div>
+        <div class="col-md-5">
+            <h4>Checkout</h4>
+            <div class="mb-2">
+                <label class="form-label d-block">Fulfillment</label>
+                <div class="btn-group btn-group-sm">
+                    <button class="btn @(isDelivery ? "btn-secondary" : "btn-primary")" @onclick="() => isDelivery = false">Pickup</button>
+                    <button class="btn @(isDelivery ? "btn-primary" : "btn-secondary")" @onclick="() => isDelivery = true">Delivery</button>
+                </div>
+                @if (isDelivery)
+                {
+                    <div class="form-text">Deliver to @customer.DefaultDeliveryAddress!.Street, @customer.DefaultDeliveryAddress.City</div>
+                }
+            </div>
+
+            <div class="mb-2">
+                <label class="form-label d-block">Payment</label>
+                <div class="btn-group btn-group-sm">
+                    @foreach (var p in PaymentProviders)
+                    {
+                        <button class="btn @(provider == p ? "btn-primary" : "btn-secondary")" @onclick="() => provider = p">@p</button>
+                    }
+                </div>
+            </div>
+            <div class="form-check mb-3">
+                <input class="form-check-input" type="checkbox" id="declineCard" @bind="declineCard" />
+                <label class="form-check-label" for="declineCard">Simulate a declined card</label>
+            </div>
+
+            <button class="btn btn-outline-secondary btn-sm" @onclick="() => step = Step.Menu">&larr; Back to menu</button>
+            <button class="btn btn-success" @onclick="PlaceOrder">Place Order</button>
+
+            @if (failure is not null)
+            {
+                <div class="alert alert-danger mt-3">
+                    <strong>Rejected at @failure.FailedStage:</strong> @failure.FailureReason
+                </div>
+            }
+        </div>
+    </div>
+}
+else if (step == Step.Done && confirmation is not null)
+{
+    <div class="alert alert-success">
+        <h4>Order confirmed! 🍕</h4>
+        <p>
+            <code>CheckoutFacade.PlaceOrder</code> ran inventory &rarr; payment
+            &rarr; kitchen routing &rarr; notification, then advanced the order
+            through the State machine.
+        </p>
+        <ul>
+            <li><strong>Payment:</strong> @confirmation.Payment!.Provider &mdash;
+                <code>@confirmation.Payment.ProviderTransactionId</code></li>
+            <li><strong>Kitchen queue position:</strong> @confirmation.KitchenQueuePosition</li>
+            <li><strong>Notification:</strong> @confirmation.Notification!.Channel &rarr; @confirmation.Notification.SentTo</li>
+            <li><strong>Order status:</strong> @placedOrder!.Status
+                (customer sees: "@currentStateMessage")</li>
+        </ul>
+        <a class="btn btn-success me-2" href="@($"track/{placedOrder!.Id}")">Track your order &rarr;</a>
+        <button class="btn btn-primary" @onclick="StartOver">Start a new order</button>
+    </div>
+}
+
+@code {
+    private enum Step { Menu, Review, Done }
+
+    private readonly Customer customer = SampleData.Customer;
+    private readonly Restaurant restaurant = SampleData.Restaurant;
+    private MenuComposite menu = default!;
+
+    private Step step = Step.Menu;
+    private readonly List<CartLine> cart = [];
+    private bool isDelivery;
+    private string provider = "Stripe";
+    private bool declineCard;
+
+    private PlaceOrderResult? confirmation;
+    private PlaceOrderResult? failure;
+    private Order? placedOrder;
+    private string currentStateMessage = "";
+
+    private static readonly string[] PaymentProviders = ["Stripe", "Square", "PayPal"];
+
+    protected override void OnInitialized() => menu = MenuCatalog.ForRestaurant(restaurant);
+
+    private decimal Subtotal => cart.Sum(l => l.ToOrderItem().GetPrice());
+
+    private void AddItem(MenuItem item) => cart.Add(new CartLine { Label = item.Name, Item = item });
+
+    private void AddCombo(ComboMeal combo) => cart.Add(new CartLine { Label = combo.Name, Combo = combo });
+
+    private async Task PlaceOrder()
+    {
+        failure = null;
+
+        // Builder (Pattern 1): assemble the Order step by step.
+        var builder = ServiceProvider.GetRequiredService<OrderBuilder>()
+            .ForCustomer(customer)
+            .FromRestaurant(restaurant);
+
+        foreach (var line in cart)
+            builder.AddItem(line.ToOrderItem());
+
+        if (isDelivery && customer.DefaultDeliveryAddress is not null)
+            builder.AsDelivery(customer.DefaultDeliveryAddress);
+        else
+            builder.AsPickup();
+
+        var order = builder.Build();
+
+        // Facade (Pattern 6): one call hides inventory + payment + kitchen + notify.
+        var checkout = ServiceProvider.GetRequiredService<CheckoutFacade>();
+        var result = checkout.PlaceOrder(new PlaceOrderRequest(
+            order, provider, declineCard ? "decline" : "tok_demo_ok"));
+
+        if (!result.Success)
+        {
+            failure = result;
+            return;
+        }
+
+        confirmation = result;
+        placedOrder = order;
+        currentStateMessage = OrderStateMachine.ForStatus(order.Status).CustomerMessage;
+        await History.RecordAsync(order, placedVia: PersonaCtx.Current == Persona.Admin ? "admin" : "customer");
+        step = Step.Done;
+    }
+
+    private void StartOver()
+    {
+        cart.Clear();
+        confirmation = null;
+        failure = null;
+        placedOrder = null;
+        isDelivery = false;
+        declineCard = false;
+        provider = "Stripe";
+        step = Step.Menu;
+    }
+
+    private sealed class CartLine
+    {
+        public required string Label { get; init; }
+        public MenuItem? Item { get; init; }
+        public ComboMeal? Combo { get; init; }
+
+        public bool ExtraCheese { get; set; }
+        public bool GlutenFree { get; set; }
+        public bool GiftWrap { get; set; }
+
+        public bool Customizable => Item is not null;
+
+        public IOrderItem ToOrderItem()
+        {
+            if (Combo is not null)
+                return new ComboLine(Combo);
+
+            // Decorator (Pattern 5): stack the chosen add-ons onto the line.
+            IOrderItem line = new OrderItem { MenuItem = Item! };
+            if (ExtraCheese) line = new ExtraCheese(line);
+            if (GlutenFree) line = new GlutenFreeCrust(line);
+            if (GiftWrap) line = new GiftWrap(line);
+            return line;
+        }
+    }
+
+    // Component-local glue: presents a combo (a Composite branch) as a
+    // single order line. Not a pattern file — just an adapter for the cart.
+    private sealed record ComboLine(ComboMeal Combo) : IOrderItem
+    {
+        public decimal GetPrice() => Combo.Price;
+        public string GetDescription() => $"{Combo.Name} (combo)";
+    }
+}

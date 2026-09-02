@@ -1,0 +1,1089 @@
+@page "/patterns"
+@inject IServiceProvider ServiceProvider
+
+<PageTitle>Pattern Playground &mdash; OrderFlow</PageTitle>
+
+<h1>Pattern Playground</h1>
+<p>Each pattern gets an isolated, runnable demo here, matching its book chapter.</p>
+
+<hr />
+
+<h2>Pattern 1: Builder</h2>
+<p>
+    Assemble an order step by step using <code>OrderBuilder</code> — the same
+    class used by the real checkout flow in <code>Components/CustomerOrdering</code>.
+    Repo reference: <code>Patterns/01-Builder</code>.
+</p>
+
+<div class="row">
+    <div class="col-md-6">
+        <h4>Menu</h4>
+        <ul class="list-group mb-3">
+            @foreach (var item in SampleData.MenuItems)
+            {
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>@item.Name</strong> &mdash; @item.BasePrice.ToString("C")
+                        <div class="text-muted small">@item.Description</div>
+                    </div>
+                    <button class="btn btn-sm btn-outline-primary" @onclick="() => AddItem(item)">
+                        Add
+                    </button>
+                </li>
+            }
+        </ul>
+
+        <div class="mb-3">
+            <label class="form-label d-block">Fulfillment</label>
+            <div class="btn-group">
+                <button class="btn @(isDelivery ? "btn-secondary" : "btn-primary")" @onclick="() => isDelivery = false">
+                    Pickup
+                </button>
+                <button class="btn @(isDelivery ? "btn-primary" : "btn-secondary")" @onclick="() => isDelivery = true">
+                    Delivery
+                </button>
+            </div>
+        </div>
+
+        <button class="btn btn-success" @onclick="BuildOrder">
+            Build Order
+        </button>
+        <button class="btn btn-outline-secondary" @onclick="ClearItems" disabled="@(selectedItems.Count == 0)">
+            Clear items
+        </button>
+        <div class="form-text">
+            Try <em>Build Order</em> with no items to see <code>Build()</code> reject an invalid order.
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <h4>Selected Items</h4>
+        @if (selectedItems.Count == 0)
+        {
+            <p class="text-muted">No items added yet.</p>
+        }
+        else
+        {
+            <ul class="list-group mb-3">
+                @foreach (var item in selectedItems)
+                {
+                    <li class="list-group-item">@item.Name &mdash; @item.BasePrice.ToString("C")</li>
+                }
+            </ul>
+        }
+
+        @if (builtOrder is not null)
+        {
+            <div class="alert alert-success">
+                <h5>Order Built</h5>
+                <p><strong>Id:</strong> @builtOrder.Id</p>
+                <p><strong>Customer:</strong> @builtOrder.Customer.Name</p>
+                <p><strong>Restaurant:</strong> @builtOrder.Restaurant.Name</p>
+                <p><strong>Type:</strong> @builtOrder.Type</p>
+                @if (builtOrder.DeliveryAddress is not null)
+                {
+                    <p><strong>Deliver to:</strong> @builtOrder.DeliveryAddress.Street, @builtOrder.DeliveryAddress.City</p>
+                }
+                <p><strong>Items:</strong> @string.Join(", ", builtOrder.Items.Select(i => i.GetDescription()))</p>
+                <p><strong>Subtotal:</strong> @builtOrder.Subtotal.ToString("C")</p>
+                <p><strong>Status:</strong> @builtOrder.Status</p>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="Reorder">
+                    Reorder my usual
+                </button>
+            </div>
+        }
+
+        @if (reorder is not null)
+        {
+            <div class="alert alert-info">
+                <h5>Reorder Built via <code>OrderDirector</code></h5>
+                <p>
+                    Same customer, restaurant, items and fulfillment as above &mdash;
+                    reassembled by the Director recipe, not by re-clicking each step.
+                </p>
+                <p><strong>Id:</strong> @reorder.Id</p>
+                <p><strong>Type:</strong> @reorder.Type</p>
+                <p><strong>Items:</strong> @string.Join(", ", reorder.Items.Select(i => i.GetDescription()))</p>
+                <p><strong>Subtotal:</strong> @reorder.Subtotal.ToString("C")</p>
+            </div>
+        }
+        @if (errorMessage is not null)
+        {
+            <div class="alert alert-danger">@errorMessage</div>
+        }
+    </div>
+</div>
+
+<hr />
+
+<h2>Pattern 2: Factory Method</h2>
+<p>
+    Pick a customer's notification preference and let <code>NotificationFactory</code>
+    decide which <code>INotifier</code> to build. The calling code below only ever
+    touches the <code>INotifier</code> interface. Repo reference:
+    <code>Patterns/02-FactoryMethod</code>.
+</p>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="mb-3">
+            <label class="form-label d-block">Preferred channel</label>
+            <div class="btn-group">
+                @foreach (var pref in Enum.GetValues<NotificationPreference>())
+                {
+                    <button class="btn @(channel == pref ? "btn-primary" : "btn-secondary")"
+                            @onclick="() => channel = pref">
+                        @pref
+                    </button>
+                }
+            </div>
+        </div>
+
+        <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" id="dropPhone" @bind="omitPhone" />
+            <label class="form-check-label" for="dropPhone">
+                Customer has no phone number on file
+            </label>
+        </div>
+
+        <button class="btn btn-success" @onclick="SendNotification">Send Notification</button>
+    </div>
+
+    <div class="col-md-6">
+        @if (receipt is not null)
+        {
+            <div class="alert alert-success">
+                <h5>Sent via <code>@notifierType</code></h5>
+                <p><strong>Channel:</strong> @receipt.Channel</p>
+                <p><strong>To:</strong> @receipt.SentTo</p>
+                <p><strong>Message:</strong> @receipt.Message</p>
+                <p><strong>At:</strong> @receipt.SentAt.ToString("T")</p>
+            </div>
+        }
+        @if (notifyError is not null)
+        {
+            <div class="alert alert-danger">@notifyError</div>
+        }
+    </div>
+</div>
+
+<hr />
+
+<h2>Pattern 3: Singleton</h2>
+<p>
+    Both panels below read <code>KitchenDisplayService.Instance.QueueFor(restaurant)</code>
+    &mdash; independently. Because the service is a Singleton, they get the
+    <em>same</em> <code>KitchenQueue</code> object, so bumping a ticket on one
+    updates the other. Repo reference: <code>Patterns/03-Singleton</code>.
+</p>
+
+<p class="small text-muted">
+    Injected instance and <code>.Instance</code> are the same object:
+    <strong>@sameInstance</strong> (hash <code>@instanceHash</code>).
+    Restaurants with a live queue: <strong>@restaurantCount</strong>.
+</p>
+
+<button class="btn btn-primary mb-3" @onclick="SendToKitchen">Send an order to the kitchen</button>
+<button class="btn btn-outline-secondary mb-3" @onclick="BumpNext" disabled="@(KitchenCount == 0)">
+    Bump next order
+</button>
+@if (bumpMessage is not null)
+{
+    <span class="ms-2 text-success">@bumpMessage</span>
+}
+
+<div class="row">
+    @foreach (var panel in new[] { "Line cook display", "Expo screen" })
+    {
+        <div class="col-md-6">
+            <h5>@panel</h5>
+            @{
+                var queue = KitchenDisplayService.Instance.QueueFor(SampleData.Restaurant);
+                var tickets = queue.Snapshot();
+            }
+            @if (tickets.Count == 0)
+            {
+                <p class="text-muted">Kitchen queue is empty.</p>
+            }
+            else
+            {
+                <ol class="list-group list-group-numbered">
+                    @foreach (var ticket in tickets)
+                    {
+                        <li class="list-group-item">
+                            @ticket.Summary
+                            <span class="text-muted small">&mdash; received @ticket.ReceivedAt.ToString("T")</span>
+                        </li>
+                    }
+                </ol>
+            }
+        </div>
+    }
+</div>
+
+<hr />
+
+<h2>Pattern 7: Composite</h2>
+<p>
+    The menu is a tree: categories hold items and other categories, and
+    a combo meal is just a category that discounts its contents. One
+    <code>Describe()</code> call on the root walks the whole thing; one
+    <code>.Price</code> totals it. Repo reference:
+    <code>Patterns/07-Composite</code>.
+</p>
+
+@{
+    var menu = BuildSampleMenu();
+    var combo = menu.Children.OfType<MenuComposite>().First(c => c.Name == "Combos")
+        .Children.OfType<ComboMeal>().First();
+    var comboParts = combo.Children.Sum(c => c.Price);
+}
+<pre class="border rounded p-3 code-output">@string.Join("\n", menu.Describe())</pre>
+<p>
+    Whole-menu total (recursive sum of every leaf):
+    <strong>@menu.Price.ToString("C")</strong><br />
+    <em>@combo.Name</em>: parts add up to @comboParts.ToString("C"),
+    combo price is <strong>@combo.Price.ToString("C")</strong>
+    (saves @combo.Discount.ToString("C")) &mdash; and the caller just
+    called <code>.Price</code>.
+</p>
+
+<hr />
+
+<h2>Pattern 6: Facade</h2>
+<p>
+    One <code>PlaceOrder</code> call. Behind it: inventory check &rarr;
+    payment (Adapter) &rarr; kitchen routing (Singleton) &rarr;
+    notification (Factory Method), in order, stopping at the first
+    failure. Repo reference: <code>Patterns/06-Facade</code>.
+</p>
+
+<div class="row">
+    <div class="col-md-6">
+        <p class="mb-1"><strong>Cart</strong> (order assembled via <code>OrderBuilder</code>):</p>
+        @foreach (var item in SampleData.MenuItems)
+        {
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="fac_@item.Id"
+                       checked="@facadeCart.Contains(item.Name)"
+                       @onchange="e => ToggleFacadeItem(item.Name, (bool)e.Value!)" />
+                <label class="form-check-label" for="fac_@item.Id">@item.Name — @item.BasePrice.ToString("C")</label>
+            </div>
+        }
+
+        <div class="mt-3 mb-2">
+            <label class="form-label d-block">Payment provider</label>
+            <div class="btn-group btn-group-sm">
+                @foreach (var p in PaymentProcessors)
+                {
+                    <button class="btn @(facadeProvider == p.ProviderName ? "btn-primary" : "btn-secondary")"
+                            @onclick="() => facadeProvider = p.ProviderName">@p.ProviderName</button>
+                }
+            </div>
+        </div>
+
+        <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="facDecline" @bind="facadeDecline" />
+            <label class="form-check-label" for="facDecline">Simulate declined card</label>
+        </div>
+        <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" id="fac86" @bind="facade86Margherita" />
+            <label class="form-check-label" for="fac86">Mark "Margherita Pizza" sold out</label>
+        </div>
+
+        <button class="btn btn-lg btn-success" @onclick="PlaceOrder" disabled="@(facadeCart.Count == 0)">
+            Place Order
+        </button>
+    </div>
+
+    <div class="col-md-6">
+        @if (facadeResult is not null)
+        {
+            <div class="alert @(facadeResult.Success ? "alert-success" : "alert-danger")">
+                <h5>@(facadeResult.Success ? "Order confirmed" : $"Rejected at: {facadeResult.FailedStage}")</h5>
+                @if (!facadeResult.Success)
+                {
+                    <p>@facadeResult.FailureReason</p>
+                }
+                <ul class="mb-0">
+                    <li>Inventory: @(facadeResult.FailedStage == "Inventory" ? "✗ " + facadeResult.FailureReason : "✓ all available")</li>
+                    <li>
+                        Payment:
+                        @if (facadeResult.Payment is null)
+                        {
+                            <text>— not attempted</text>
+                        }
+                        else if (facadeResult.Payment.Succeeded)
+                        {
+                            <text>✓ @facadeResult.Payment.Provider <code>@facadeResult.Payment.ProviderTransactionId</code></text>
+                        }
+                        else
+                        {
+                            <text>✗ @facadeResult.Payment.FailureReason</text>
+                        }
+                    </li>
+                    <li>Kitchen: @(facadeResult.Success ? $"✓ queued at position {facadeResult.KitchenQueuePosition}" : "— not routed")</li>
+                    <li>Notification: @(facadeResult.Notification is { } n ? $"✓ {n.Channel} → {n.SentTo}" : "— not sent")</li>
+                </ul>
+            </div>
+        }
+    </div>
+</div>
+
+<hr />
+
+<h2>Pattern 5: Decorator</h2>
+<p>
+    Start from a plain menu item and stack add-ons. Each add-on wraps
+    the previous <code>IOrderItem</code> and folds its own cost and
+    label on top &mdash; <code>OrderItem</code> itself never changes.
+    Repo reference: <code>Patterns/05-Decorator</code>.
+</p>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="mb-3" style="max-width: 18rem;">
+            <label class="form-label">Base item</label>
+            <select class="form-select" @bind="baseItemName">
+                @foreach (var item in SampleData.MenuItems)
+                {
+                    <option value="@item.Name">@item.Name (@item.BasePrice.ToString("C"))</option>
+                }
+            </select>
+        </div>
+
+        <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="dExtraCheese" @bind="withExtraCheese" />
+            <label class="form-check-label" for="dExtraCheese">Extra cheese (+$1.50)</label>
+        </div>
+        <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="dGlutenFree" @bind="withGlutenFree" />
+            <label class="form-check-label" for="dGlutenFree">Gluten-free crust (+$2.00)</label>
+        </div>
+        <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" id="dGiftWrap" @bind="withGiftWrap" />
+            <label class="form-check-label" for="dGiftWrap">Gift wrap (+10%, applied last)</label>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        @{
+            var (decorated, chain) = BuildDecorated();
+        }
+        <div class="alert alert-secondary">
+            <p class="mb-1"><strong>Description:</strong> @decorated.GetDescription()</p>
+            <p class="mb-1"><strong>Price:</strong> @decorated.GetPrice().ToString("C")</p>
+            <p class="mb-0"><strong>Object chain:</strong> <code>@chain</code></p>
+        </div>
+    </div>
+</div>
+
+<hr />
+
+<h2>Pattern 4: Adapter</h2>
+<p>
+    Pick a payment provider. Each one has a different underlying "SDK"
+    (cents vs. decimals, "source" vs. "nonce" vs. "payer token", status
+    strings that don't match), but the charge code below is
+    <em>byte-for-byte identical</em> across all three &mdash; it only
+    ever touches <code>IPaymentProcessor</code>. Repo reference:
+    <code>Patterns/04-Adapter</code>.
+</p>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="mb-3">
+            <label class="form-label d-block">Provider</label>
+            <div class="btn-group">
+                @foreach (var p in PaymentProcessors)
+                {
+                    <button class="btn @(provider == p.ProviderName ? "btn-primary" : "btn-secondary")"
+                            @onclick="() => provider = p.ProviderName">
+                        @p.ProviderName
+                    </button>
+                }
+            </div>
+        </div>
+
+        <div class="mb-3" style="max-width: 12rem;">
+            <label class="form-label">Amount (USD)</label>
+            <input type="number" class="form-control" step="0.01" min="0" @bind="chargeAmount" />
+        </div>
+
+        <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" id="declineCard" @bind="declineCard" />
+            <label class="form-check-label" for="declineCard">Simulate a declined card</label>
+        </div>
+
+        <button class="btn btn-success" @onclick="Charge">Charge</button>
+    </div>
+
+    <div class="col-md-6">
+        @if (paymentResult is not null)
+        {
+            <div class="alert @(paymentResult.Succeeded ? "alert-success" : "alert-danger")">
+                <h5>@(paymentResult.Succeeded ? "Payment approved" : "Payment failed")</h5>
+                <p><strong>Provider:</strong> @paymentResult.Provider</p>
+                @if (paymentResult.Succeeded)
+                {
+                    <p><strong>Transaction:</strong> <code>@paymentResult.ProviderTransactionId</code></p>
+                }
+                else
+                {
+                    <p><strong>Reason:</strong> @paymentResult.FailureReason</p>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+<hr />
+
+<h2>Pattern 9: State</h2>
+<p>
+    An <code>OrderStateMachine</code> wraps one order. Each lifecycle
+    action is delegated to the current <code>IOrderState</code> object,
+    which decides whether it's legal and which state comes next. Illegal
+    moves throw &mdash; try to cancel an order that's already
+    <code>Preparing</code>. Repo reference: <code>Patterns/09-State</code>.
+</p>
+
+<div class="alert alert-secondary">
+    <p class="mb-1"><strong>Current state:</strong> <code>@stateMachine.Current.GetType().Name</code>
+        (status label: <strong>@stateMachine.Current.Status</strong>)</p>
+    <p class="mb-1"><strong>Customer sees:</strong> @stateMachine.Current.CustomerMessage</p>
+    <p class="mb-0"><strong>Can cancel:</strong> @stateMachine.Current.CanCancel</p>
+</div>
+
+<button class="btn btn-primary" @onclick="AdvanceState">Advance</button>
+<button class="btn btn-outline-danger" @onclick="CancelState">Cancel</button>
+<button class="btn btn-outline-secondary" @onclick="ResetStateDemo">Reset</button>
+@if (stateError is not null)
+{
+    <div class="alert alert-danger mt-2 mb-0">@stateError</div>
+}
+
+<hr />
+
+<h2>Pattern 10: Strategy</h2>
+<p>
+    The delivery fee is produced by whichever
+    <code>IDeliveryPricingStrategy</code> is active. The quote code below
+    is identical for all three &mdash; it just calls
+    <code>strategy.Quote(context)</code>. Swap the rule, not the code.
+    Repo reference: <code>Patterns/10-Strategy</code>.
+</p>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="mb-3">
+            <label class="form-label d-block">Pricing rule</label>
+            <div class="btn-group">
+                @foreach (var s in DeliveryStrategies)
+                {
+                    <button class="btn @(pricingRule == s.Name ? "btn-primary" : "btn-secondary")"
+                            @onclick="() => pricingRule = s.Name">@s.Name</button>
+                }
+            </div>
+        </div>
+
+        <div class="mb-2" style="max-width: 14rem;">
+            <label class="form-label">Order subtotal (USD)</label>
+            <input type="number" class="form-control" step="0.01" min="0" @bind="pricingSubtotal" />
+        </div>
+        <div class="mb-2" style="max-width: 14rem;">
+            <label class="form-label">Distance (miles)</label>
+            <input type="number" class="form-control" step="0.1" min="0" @bind="pricingDistance" />
+        </div>
+        <div class="mb-3" style="max-width: 14rem;">
+            <label class="form-label">Demand multiplier (surge)</label>
+            <input type="number" class="form-control" step="0.1" min="1" @bind="pricingDemand" />
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        @{
+            var strategy = DeliveryStrategies.First(s => s.Name == pricingRule);
+            var quote = strategy.Quote(new DeliveryContext(pricingSubtotal, (double)pricingDistance, (double)pricingDemand));
+        }
+        <div class="alert alert-secondary">
+            <h5>Delivery fee: @quote.Fee.ToString("C")</h5>
+            <p class="mb-0">@quote.Explanation</p>
+        </div>
+    </div>
+</div>
+
+<hr />
+
+<h2>Pattern 8: Observer</h2>
+<p>
+    One <code>OrderStatusPublisher</code>. Three screens subscribed to it,
+    each reacting to the <em>same</em> status change in its own way. Walk
+    the order through its lifecycle and watch every panel update from a
+    single <code>Publish()</code> call &mdash; and toggle the dispatch
+    board on and off to add/remove an observer at runtime. Repo reference:
+    <code>Patterns/08-Observer</code>.
+</p>
+
+<p class="small text-muted">
+    Order <code>@obsOrderId.ToString()[..8]</code> &mdash; current status:
+    <strong>@obsStatus</strong>. Live observers: <strong>@obsPublisher.ObserverCount</strong>.
+</p>
+
+<button class="btn btn-primary mb-2" @onclick="AdvanceStatus" disabled="@(obsStatus == OrderStatus.Completed)">
+    Advance order status
+</button>
+<button class="btn btn-outline-secondary mb-2" @onclick="ResetObserverDemo">Reset</button>
+
+<div class="form-check mb-3">
+    <input class="form-check-input" type="checkbox" id="obsDispatch"
+           checked="@dispatchSubscribed" @onchange="ToggleDispatch" />
+    <label class="form-check-label" for="obsDispatch">Dispatch Dashboard is subscribed</label>
+</div>
+
+<div class="row">
+    @foreach (var screen in obsScreens)
+    {
+        <div class="col-md-4">
+            <h5>@screen.ScreenName</h5>
+            @if (screen.Log.Count == 0)
+            {
+                <p class="text-muted">Nothing yet.</p>
+            }
+            else
+            {
+                <ul class="list-group">
+                    @foreach (var line in screen.Log)
+                    {
+                        <li class="list-group-item small">@line</li>
+                    }
+                </ul>
+            }
+        </div>
+    }
+</div>
+
+<hr />
+
+<h2>Bonus Pattern: Command</h2>
+<p>
+    Admin actions on a live order &mdash; add an item, comp one, apply a
+    tip, cancel &mdash; are each a command object with
+    <code>Execute()</code> and <code>Undo()</code>.
+    <code>OrderCommandInvoker</code> runs them, keeps an undo stack, and
+    appends every action to an append-only audit trail. Repo reference:
+    <code>Patterns/11-Command</code>.
+</p>
+
+<div class="row">
+    <div class="col-md-6">
+        <p class="mb-1"><strong>Order @cmdTicket.Reference</strong>
+            @if (cmdTicket.IsCancelled) { <span class="badge bg-danger">Cancelled</span> }
+        </p>
+        <ul class="list-group mb-2">
+            @foreach (var line in cmdTicket.LineItems)
+            {
+                <li class="list-group-item py-1">@line</li>
+            }
+        </ul>
+        <p><strong>Tip:</strong> @cmdTicket.Tip.ToString("C") &nbsp;
+           <strong>Total:</strong> @cmdTicket.Total().ToString("C")</p>
+
+        <div class="btn-group-vertical">
+            <button class="btn btn-sm btn-outline-primary" @onclick='() => Run(new AddLineItemCommand(cmdTicket, "Garlic Knots"))'>
+                Add "Garlic Knots"
+            </button>
+            <button class="btn btn-sm btn-outline-primary" @onclick='() => Run(new RemoveLineItemCommand(cmdTicket, "Caesar Salad"))'>
+                Comp "Caesar Salad"
+            </button>
+            <button class="btn btn-sm btn-outline-primary" @onclick="() => Run(new ApplyTipCommand(cmdTicket, 5.00m))">
+                Apply $5.00 tip
+            </button>
+            <button class="btn btn-sm btn-outline-danger" @onclick="() => Run(new CancelOrderCommand(cmdTicket))">
+                Cancel order
+            </button>
+        </div>
+        <div class="mt-2">
+            <button class="btn btn-sm btn-warning" @onclick="UndoCommand" disabled="@(!cmdInvoker.CanUndo)">
+                Undo last
+            </button>
+            <button class="btn btn-sm btn-outline-secondary" @onclick="ResetCommandDemo">Reset</button>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <h5>Audit trail</h5>
+        @if (cmdInvoker.AuditTrail.Count == 0)
+        {
+            <p class="text-muted">No actions yet.</p>
+        }
+        else
+        {
+            <ol class="list-group list-group-numbered">
+                @foreach (var entry in cmdInvoker.AuditTrail)
+                {
+                    <li class="list-group-item small">
+                        <span class="text-muted">@entry.At.ToString("T")</span>
+                        &mdash; <strong>@entry.Verb</strong>: @entry.Description
+                    </li>
+                }
+            </ol>
+        }
+    </div>
+</div>
+
+<hr />
+
+<h2>Bonus Pattern: Chain of Responsibility</h2>
+<p>
+    A checkout request runs a gauntlet: <strong>fraud check &rarr;
+    inventory check &rarr; payment authorization</strong>. Each handler
+    either rejects and stops the chain or passes the request to the next
+    link. The caller hands the request to the head and reads one
+    decision. Repo reference: <code>Patterns/12-Chain</code>.
+</p>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="mb-2">
+            <label class="form-label d-block">Customer risk flag</label>
+            <div class="btn-group btn-group-sm">
+                @foreach (var flag in new[] { "none", "new-account", "chargeback-history" })
+                {
+                    <button class="btn @(corRiskFlag == flag ? "btn-primary" : "btn-secondary")"
+                            @onclick="() => corRiskFlag = flag">@flag</button>
+                }
+            </div>
+        </div>
+        <div class="mb-2" style="max-width: 12rem;">
+            <label class="form-label">Order total (USD)</label>
+            <input type="number" class="form-control" step="1" min="0" @bind="corTotal" />
+        </div>
+        <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="corSoldOut" @bind="corGarlicKnotsSoldOut" />
+            <label class="form-check-label" for="corSoldOut">"Garlic Knots" sold out</label>
+        </div>
+        <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" id="corCard" @bind="corCardOk" />
+            <label class="form-check-label" for="corCard">Card pre-authorized</label>
+        </div>
+        <button class="btn btn-success" @onclick="RunCheckoutChain">Run checkout chain</button>
+    </div>
+
+    <div class="col-md-6">
+        @if (corDecision is not null)
+        {
+            <div class="alert @(corDecision.Approved ? "alert-success" : "alert-danger")">
+                @if (corDecision.Approved)
+                {
+                    <h5>Approved</h5>
+                    <p class="mb-0">Every handler in the chain passed the request along.</p>
+                }
+                else
+                {
+                    <h5>Rejected by: @corDecision.RejectedBy</h5>
+                    <p class="mb-0">@corDecision.Reason</p>
+                    <p class="mb-0 small text-muted">Handlers after this one never ran.</p>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private readonly List<MenuItem> selectedItems = [];
+    private bool isDelivery;
+    private Order? builtOrder;
+    private Order? reorder;
+    private string? errorMessage;
+
+    private void AddItem(MenuItem item)
+    {
+        selectedItems.Add(item);
+        builtOrder = null;
+        reorder = null;
+    }
+
+    private void ClearItems()
+    {
+        selectedItems.Clear();
+        builtOrder = null;
+        reorder = null;
+        errorMessage = null;
+    }
+
+    private void BuildOrder()
+    {
+        errorMessage = null;
+        try
+        {
+            // A fresh builder per order, resolved from DI as Transient
+            // (see Program.cs). Reusing one injected builder instance
+            // across multiple "Build Order" clicks would silently
+            // accumulate items from previous builds — exactly the bug
+            // the Transient lifetime is meant to avoid.
+            var builder = ServiceProvider.GetRequiredService<OrderBuilder>();
+
+            builder
+                .ForCustomer(SampleData.Customer)
+                .FromRestaurant(SampleData.Restaurant);
+
+            foreach (var menuItem in selectedItems)
+            {
+                builder.AddItem(new OrderItem { MenuItem = menuItem });
+            }
+
+            if (isDelivery && SampleData.Customer.DefaultDeliveryAddress is not null)
+            {
+                builder.AsDelivery(SampleData.Customer.DefaultDeliveryAddress);
+            }
+            else
+            {
+                builder.AsPickup();
+            }
+
+            builtOrder = builder.Build();
+            reorder = null;
+        }
+        catch (InvalidOperationException ex)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private void Reorder()
+    {
+        if (builtOrder is null)
+            return;
+
+        // The Director resolves its own fresh IOrderBuilder from DI, so
+        // this recipe never touches the individual fluent steps — the
+        // caller just hands over a previous order and gets a new one.
+        var director = ServiceProvider.GetRequiredService<OrderDirector>();
+        reorder = director.BuildReorder(builtOrder);
+    }
+
+    // --- Pattern 2: Factory Method --------------------------------------
+    private NotificationPreference channel = NotificationPreference.Sms;
+    private bool omitPhone;
+    private NotificationReceipt? receipt;
+    private string? notifierType;
+    private string? notifyError;
+
+    private void SendNotification()
+    {
+        receipt = null;
+        notifyError = null;
+        notifierType = null;
+
+        var customer = new Customer
+        {
+            Name = SampleData.Customer.Name,
+            Email = SampleData.Customer.Email,
+            Phone = omitPhone ? null : SampleData.Customer.Phone,
+            PreferredNotification = channel,
+        };
+
+        var factory = ServiceProvider.GetRequiredService<NotificationFactory>();
+
+        try
+        {
+            // The only line that knows a customer preference exists. From
+            // here down everything is INotifier — no channel switch, no
+            // concrete type names.
+            INotifier notifier = factory.CreateFor(customer);
+            notifierType = notifier.GetType().Name;
+            receipt = notifier.Send(customer, "Your order at Mountain Pie Pizza Co. is confirmed!");
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentOutOfRangeException)
+        {
+            notifyError = ex.Message;
+        }
+    }
+
+    // --- Pattern 3: Singleton ------------------------------------------
+    private bool sameInstance;
+    private string instanceHash = "";
+    private int restaurantCount;
+    private string? bumpMessage;
+    private int orderNo = 1;
+
+    private int KitchenCount =>
+        KitchenDisplayService.Instance.QueueFor(SampleData.Restaurant).Count;
+
+    protected override void OnInitialized()
+    {
+        // Two paths to the service — DI and the static property — resolve
+        // to one object because of how it's registered in Program.cs.
+        var injected = ServiceProvider.GetRequiredService<KitchenDisplayService>();
+        sameInstance = ReferenceEquals(injected, KitchenDisplayService.Instance);
+        instanceHash = KitchenDisplayService.Instance.GetHashCode().ToString("X");
+        restaurantCount = KitchenDisplayService.Instance.RestaurantCount;
+
+        BuildObserverDemo();
+    }
+
+    private void SendToKitchen()
+    {
+        var summary = selectedItems.Count > 0
+            ? string.Join(", ", selectedItems.Select(i => i.Name))
+            : "Margherita Pizza x1";
+
+        KitchenDisplayService.Instance
+            .QueueFor(SampleData.Restaurant)
+            .Enqueue(KitchenTicket.For(Guid.NewGuid(), $"Order #{orderNo++}: {summary}"));
+
+        bumpMessage = null;
+        restaurantCount = KitchenDisplayService.Instance.RestaurantCount;
+    }
+
+    private void BumpNext()
+    {
+        var bumped = KitchenDisplayService.Instance
+            .QueueFor(SampleData.Restaurant)
+            .TryBumpNext(out var ticket);
+
+        bumpMessage = bumped ? $"Bumped: {ticket!.Summary}" : "Queue was already empty.";
+    }
+
+    // --- Pattern 4: Adapter -------------------------------------------
+    private string provider = "Stripe";
+    private decimal chargeAmount = 28.50m;
+    private bool declineCard;
+    private PaymentResult? paymentResult;
+
+    private IEnumerable<IPaymentProcessor> PaymentProcessors =>
+        ServiceProvider.GetServices<IPaymentProcessor>();
+
+    private void Charge()
+    {
+        // This is the whole point: one code path, any provider. Swapping
+        // Stripe for PayPal changes which adapter DI hands back and
+        // nothing else here.
+        IPaymentProcessor processor = PaymentProcessors.First(p => p.ProviderName == provider);
+
+        var request = new PaymentRequest(
+            Amount: chargeAmount,
+            Currency: "USD",
+            OrderReference: $"demo-{DateTime.UtcNow:HHmmss}",
+            PaymentToken: declineCard ? "decline" : "tok_demo_ok");
+
+        paymentResult = processor.Charge(request);
+    }
+
+    // --- Pattern 5: Decorator ----------------------------------------
+    private string baseItemName = "Margherita Pizza";
+    private bool withExtraCheese;
+    private bool withGlutenFree;
+    private bool withGiftWrap;
+
+    // --- Pattern 7: Composite --------------------------------------
+    // Same menu tree the real customer ordering flow walks.
+    private static MenuComposite BuildSampleMenu() =>
+        MenuCatalog.ForRestaurant(SampleData.Restaurant);
+
+    // --- Pattern 6: Facade ------------------------------------------
+    private readonly HashSet<string> facadeCart = ["Pepperoni Pizza"];
+    private string facadeProvider = "Stripe";
+    private bool facadeDecline;
+    private bool facade86Margherita;
+    private PlaceOrderResult? facadeResult;
+
+    private void ToggleFacadeItem(string name, bool include)
+    {
+        if (include) facadeCart.Add(name); else facadeCart.Remove(name);
+        facadeResult = null;
+    }
+
+    private void PlaceOrder()
+    {
+        // Keep the sold-out set in sync with the demo toggle.
+        var inventory = (InMemoryInventoryService)ServiceProvider.GetRequiredService<IInventoryService>();
+        if (facade86Margherita) inventory.SoldOut.Add("Margherita Pizza");
+        else inventory.SoldOut.Remove("Margherita Pizza");
+
+        // Assemble the order with the Builder (Pattern 1)...
+        var orderBuilder = ServiceProvider.GetRequiredService<OrderBuilder>()
+            .ForCustomer(SampleData.Customer)
+            .FromRestaurant(SampleData.Restaurant)
+            .AsPickup();
+        foreach (var name in facadeCart)
+        {
+            var menuItem = SampleData.MenuItems.First(m => m.Name == name);
+            orderBuilder.AddItem(new OrderItem { MenuItem = menuItem });
+        }
+        var order = orderBuilder.Build();
+
+        // ...then hand the whole checkout to one Facade call.
+        var checkout = ServiceProvider.GetRequiredService<CheckoutFacade>();
+        facadeResult = checkout.PlaceOrder(new PlaceOrderRequest(
+            order,
+            facadeProvider,
+            facadeDecline ? "decline" : "tok_demo_ok"));
+    }
+
+    // --- Bonus: Chain of Responsibility ------------------------
+    private string corRiskFlag = "none";
+    private decimal corTotal = 42.00m;
+    private bool corGarlicKnotsSoldOut;
+    private bool corCardOk = true;
+    private CheckoutDecision? corDecision;
+
+    private void RunCheckoutChain()
+    {
+        var soldOut = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (corGarlicKnotsSoldOut) soldOut.Add("Garlic Knots");
+
+        var chain = CheckoutPipeline.Standard(soldOut);
+
+        corDecision = chain.Handle(new CheckoutContext(
+            OrderReference: "#4471",
+            OrderTotal: corTotal,
+            Items: ["Margherita Pizza", "Garlic Knots"],
+            CustomerRiskFlag: corRiskFlag,
+            CardPreAuthorized: corCardOk));
+    }
+
+    // --- Bonus: Command ----------------------------------------
+    private OrderTicket cmdTicket = NewTicket();
+    private OrderCommandInvoker cmdInvoker = new();
+
+    private static OrderTicket NewTicket() =>
+        new("#4471", ["Margherita Pizza", "Caesar Salad"]);
+
+    private void Run(IOrderCommand command) => cmdInvoker.Do(command);
+
+    private void UndoCommand() => cmdInvoker.Undo();
+
+    private void ResetCommandDemo()
+    {
+        cmdTicket = NewTicket();
+        cmdInvoker = new();
+    }
+
+    // --- Pattern 10: Strategy -----------------------------------
+    private string pricingRule = "Flat rate";
+    private decimal pricingSubtotal = 22.00m;
+    private decimal pricingDistance = 3.5m;
+    private decimal pricingDemand = 1.8m;
+
+    private IEnumerable<IDeliveryPricingStrategy> DeliveryStrategies =>
+        ServiceProvider.GetServices<IDeliveryPricingStrategy>();
+
+    // --- Pattern 9: State ----------------------------------------
+    private OrderStateMachine stateMachine = new(BuildDemoOrder());
+    private string? stateError;
+
+    private static Order BuildDemoOrder() =>
+        new OrderBuilder()
+            .ForCustomer(SampleData.Customer)
+            .FromRestaurant(SampleData.Restaurant)
+            .AsPickup()
+            .AddItem(new OrderItem { MenuItem = SampleData.MenuItems[0] })
+            .Build();
+
+    private void AdvanceState()
+    {
+        stateError = null;
+        try { stateMachine.Advance(); }
+        catch (InvalidOperationException ex) { stateError = ex.Message; }
+    }
+
+    private void CancelState()
+    {
+        stateError = null;
+        try { stateMachine.Cancel(); }
+        catch (InvalidOperationException ex) { stateError = ex.Message; }
+    }
+
+    private void ResetStateDemo()
+    {
+        stateMachine = new(BuildDemoOrder());
+        stateError = null;
+    }
+
+    // --- Pattern 8: Observer --------------------------------------
+    // The isolated demo uses its own publisher instance so repeated page
+    // visits start clean. The real app injects the singleton
+    // OrderStatusPublisher registered in Program.cs.
+    private OrderStatusPublisher obsPublisher = new();
+    private KitchenDisplayObserver obsKitchen = new();
+    private CustomerTrackerObserver obsCustomer = new();
+    private DispatchDashboardObserver obsDispatch = new();
+    private IDisposable? obsDispatchSubscription;
+    private bool dispatchSubscribed = true;
+    private Guid obsOrderId = Guid.NewGuid();
+    private OrderStatus obsStatus = OrderStatus.Placed;
+
+    private IEnumerable<ScreenObserver> obsScreens =>
+        new ScreenObserver[] { obsKitchen, obsCustomer, obsDispatch };
+
+    private static readonly OrderStatus[] Lifecycle =
+    [
+        OrderStatus.Confirmed, OrderStatus.Preparing, OrderStatus.Ready,
+        OrderStatus.OutForDelivery, OrderStatus.Completed,
+    ];
+
+    private void BuildObserverDemo()
+    {
+        obsPublisher.Subscribe(obsKitchen);
+        obsPublisher.Subscribe(obsCustomer);
+        if (dispatchSubscribed)
+            obsDispatchSubscription = obsPublisher.Subscribe(obsDispatch);
+    }
+
+    private void AdvanceStatus()
+    {
+        var next = Lifecycle.FirstOrDefault(s => s > obsStatus);
+        if (next == default && obsStatus != OrderStatus.Placed) return;
+
+        var change = OrderStatusChange.Between(obsOrderId, obsStatus, next);
+        obsStatus = next;
+
+        // One call. Every subscribed screen reacts.
+        obsPublisher.Publish(change);
+    }
+
+    private void ToggleDispatch(ChangeEventArgs e)
+    {
+        dispatchSubscribed = (bool)e.Value!;
+        if (dispatchSubscribed)
+        {
+            obsDispatchSubscription = obsPublisher.Subscribe(obsDispatch);
+        }
+        else
+        {
+            obsDispatchSubscription?.Dispose();
+            obsDispatchSubscription = null;
+        }
+    }
+
+    private void ResetObserverDemo()
+    {
+        obsPublisher = new();
+        obsKitchen = new();
+        obsCustomer = new();
+        obsDispatch = new();
+        obsDispatchSubscription = null;
+        obsOrderId = Guid.NewGuid();
+        obsStatus = OrderStatus.Placed;
+        BuildObserverDemo();
+    }
+
+    private (IOrderItem Item, string Chain) BuildDecorated()
+    {
+        var menuItem = SampleData.MenuItems.First(m => m.Name == baseItemName);
+
+        // Every wrap returns an IOrderItem, so the next wrap doesn't
+        // know or care whether it's wrapping the plain item or another
+        // decorator.
+        IOrderItem item = new OrderItem { MenuItem = menuItem };
+        var chain = nameof(OrderItem);
+
+        if (withExtraCheese) { item = new ExtraCheese(item); chain = $"ExtraCheese({chain})"; }
+        if (withGlutenFree) { item = new GlutenFreeCrust(item); chain = $"GlutenFreeCrust({chain})"; }
+        if (withGiftWrap) { item = new GiftWrap(item); chain = $"GiftWrap({chain})"; }
+
+        return (item, chain);
+    }
+}

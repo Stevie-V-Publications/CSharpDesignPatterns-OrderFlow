@@ -1,0 +1,145 @@
+/* OrderFlow tweaks layered on top of the Corona (BootstrapDash) template.
+   Corona's style.css owns the shell layout; this file only patches a few
+   OrderFlow-specific bits (text logo, active nav item, Blazor error UI). */
+
+/* Text brand logo (template normally ships an SVG image). */
+.navbar .navbar-brand.brand-logo,
+.navbar .navbar-brand.brand-logo-mini {
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: #fff;
+    text-decoration: none;
+}
+
+.navbar .navbar-brand.brand-logo span,
+.navbar .navbar-brand.brand-logo-mini span {
+    color: #b66dff;
+}
+
+/* Corona highlights the whole list item; NavLink marks the inner <a>.
+   NavMenu.razor mirrors the active route onto .nav-item, style both. */
+.sidebar .nav .nav-item.menu-items.active > .nav-link,
+.sidebar .nav .nav-item.menu-items .nav-link.active {
+    background: #b66dff;
+    color: #fff;
+}
+
+.sidebar .nav .nav-item.menu-items.active > .nav-link .menu-title,
+.sidebar .nav .nav-item.menu-items .nav-link.active .menu-title,
+.sidebar .nav .nav-item.menu-items.active > .nav-link .menu-icon i,
+.sidebar .nav .nav-item.menu-items .nav-link.active .menu-icon i {
+    color: #fff;
+}
+
+/* Corona's dark theme leaves <pre> text near-white; give code/tree output
+   its own readable light panel regardless of theme. */
+.code-output {
+    background: #f6f7fb;
+    color: #1b1f27;
+    white-space: pre;
+    overflow-x: auto;
+}
+
+/* Customer Order Tracker — vertical progress stepper. */
+.tracker-steps {
+    margin: 0;
+    padding-left: 0;
+}
+
+.tracker-step {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0;
+    position: relative;
+}
+
+.tracker-step:not(:last-child)::after {
+    content: "";
+    position: absolute;
+    left: 13px;
+    top: 2rem;
+    bottom: -0.5rem;
+    width: 2px;
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.tracker-dot {
+    flex: 0 0 auto;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.6);
+    z-index: 1;
+}
+
+.tracker-step.done .tracker-dot {
+    background: #1bcfb4;
+    color: #fff;
+}
+
+.tracker-step.current .tracker-dot {
+    background: #b66dff;
+    color: #fff;
+    box-shadow: 0 0 0 4px rgba(182, 109, 255, 0.25);
+}
+
+.tracker-step.current .tracker-label {
+    font-weight: 600;
+}
+
+.tracker-step.todo .tracker-label {
+    opacity: 0.5;
+}
+
+/* Persona switcher: Corona positions .navbar-dropdown absolutely with
+   right:0, which only lands correctly if the dropdown's nav-item is the
+   positioned ancestor. Without this the menu anchors to the navbar and
+   spills off the right edge on desktop (mobile has its own <=991px rule). */
+@media (min-width: 992px) {
+    /* Corona pins the fixed navbar with `left: 244px` (the sidebar width) but
+       never caps its width, so our full-width markup overflows the viewport by
+       244px and drags the right-aligned persona menu off-screen. Collapsing the
+       sidebar (`left: 70px`) only shrank the overflow, which is why it looked
+       fine there. Cap the width to match the offset. */
+    .navbar.fixed-top {
+        width: calc(100% - 244px);
+    }
+
+    .sidebar-icon-only .navbar.fixed-top {
+        width: calc(100% - 70px);
+    }
+
+    .navbar .navbar-menu-wrapper .navbar-nav .nav-item.dropdown {
+        position: relative;
+    }
+}
+
+.welcome-sub-text {
+    font-size: 0.8125rem;
+    opacity: 0.7;
+}
+
+/* Blazor's default circuit error banner. */
+#blazor-error-ui {
+    background: #ffd7d7;
+    bottom: 0;
+    box-shadow: 0 -1px 2px rgba(0, 0, 0, 0.2);
+    display: none;
+    left: 0;
+    padding: 0.75rem 1.25rem;
+    position: fixed;
+    width: 100%;
+    z-index: 1000;
+}
+
+#blazor-error-ui .dismiss {
+    cursor: pointer;
+    position: absolute;
+    right: 0.75rem;
+    top: 0.5rem;
+}

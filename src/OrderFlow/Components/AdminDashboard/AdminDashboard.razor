@@ -1,0 +1,376 @@
+@page "/admin"
+@inject IServiceProvider ServiceProvider
+@inject OrderHistoryService History
+
+<PageTitle>Admin Dashboard &mdash; OrderFlow</PageTitle>
+
+<h1>Admin Dashboard</h1>
+<p class="text-muted">
+    The "in the wild" home of <strong>Strategy</strong> (delivery
+    pricing), <strong>Adapter</strong> (payment providers),
+    <strong>Facade</strong> (place an order on a customer's behalf),
+    <strong>Chain of Responsibility</strong> (the checkout gate
+    pipeline), and <strong>Command</strong> (order adjustments with undo
+    and an audit trail).
+</p>
+<p class="text-muted">
+    Looking for the live driver board? That's the
+    <a href="dispatch">Dispatch Dashboard</a> &mdash; the third
+    <strong>Observer</strong> surface.
+</p>
+
+@* ---------------------------------------------------------------- *@
+<section class="mb-5">
+    <h3>Delivery pricing &mdash; Strategy</h3>
+    <p class="text-muted small">
+        Switch the active <code>IDeliveryPricingStrategy</code>. The quote
+        code is identical for every rule.
+    </p>
+    <div class="btn-group btn-group-sm mb-2">
+        @foreach (var s in DeliveryStrategies)
+        {
+            <button class="btn @(activeRule == s.Name ? "btn-primary" : "btn-secondary")"
+                    @onclick="() => activeRule = s.Name">@s.Name</button>
+        }
+    </div>
+    <div class="row g-2 mb-2" style="max-width: 30rem;">
+        <div class="col"><label class="form-label small">Subtotal</label>
+            <input type="number" step="0.01" class="form-control form-control-sm" @bind="priceSubtotal" /></div>
+        <div class="col"><label class="form-label small">Distance (mi)</label>
+            <input type="number" step="0.1" class="form-control form-control-sm" @bind="priceDistance" /></div>
+        <div class="col"><label class="form-label small">Surge x</label>
+            <input type="number" step="0.1" class="form-control form-control-sm" @bind="priceDemand" /></div>
+    </div>
+    @{
+        var strategy = DeliveryStrategies.First(s => s.Name == activeRule);
+        var quote = strategy.Quote(new DeliveryContext(priceSubtotal, (double)priceDistance, (double)priceDemand));
+    }
+    <div class="alert alert-secondary py-2 mb-0" style="max-width: 30rem;">
+        <strong>Delivery fee: @quote.Fee.ToString("C")</strong><br />
+        <span class="small">@quote.Explanation</span>
+    </div>
+</section>
+
+@* ---------------------------------------------------------------- *@
+<section class="mb-5">
+    <h3>Payment providers &mdash; Adapter</h3>
+    <p class="text-muted small">
+        Run a $@testCharge.ToString("0.00") test charge through every
+        <code>IPaymentProcessor</code>. Different SDKs underneath; one
+        interface here.
+    </p>
+    <div class="mb-2" style="max-width: 12rem;">
+        <input type="number" step="0.01" class="form-control form-control-sm" @bind="testCharge" />
+    </div>
+    <div class="form-check mb-2">
+        <input class="form-check-input" type="checkbox" id="adminDecline" @bind="testDecline" />
+        <label class="form-check-label small" for="adminDecline">Simulate declined card</label>
+    </div>
+    <button class="btn btn-sm btn-success mb-2" @onclick="RunTestCharges">Run test charges</button>
+    @if (chargeResults.Count > 0)
+    {
+        <table class="table table-sm" style="max-width: 40rem;">
+            <thead><tr><th>Provider</th><th>Result</th><th>Detail</th></tr></thead>
+            <tbody>
+                @foreach (var r in chargeResults)
+                {
+                    <tr>
+                        <td>@r.Provider</td>
+                        <td>@(r.Succeeded ? "✓ approved" : "✗ declined")</td>
+                        <td class="small"><code>@(r.Succeeded ? r.ProviderTransactionId : r.FailureReason)</code></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</section>
+
+@* ---------------------------------------------------------------- *@
+<section class="mb-5">
+    <h3>Place order on behalf of a customer &mdash; Facade</h3>
+    <p class="text-muted small">
+        One <code>CheckoutFacade.PlaceOrder</code> call: inventory &rarr;
+        payment &rarr; kitchen &rarr; notification.
+    </p>
+    <div class="mb-2">
+        @foreach (var item in SampleData.MenuItems)
+        {
+            <div class="form-check form-check-inline">
+                <input class="form-check-input" type="checkbox" id="adm_@item.Id"
+                       checked="@facadeCart.Contains(item.Name)"
+                       @onchange="e => ToggleFacadeItem(item.Name, (bool)e.Value!)" />
+                <label class="form-check-label small" for="adm_@item.Id">@item.Name</label>
+            </div>
+        }
+    </div>
+    <div class="btn-group btn-group-sm mb-2">
+        @foreach (var p in PaymentProviders)
+        {
+            <button class="btn @(facadeProvider == p ? "btn-primary" : "btn-secondary")"
+                    @onclick="() => facadeProvider = p">@p</button>
+        }
+    </div>
+    <button class="btn btn-sm btn-success mb-2" @onclick="PlaceOrderViaFacade"
+            disabled="@(facadeCart.Count == 0)">Place order</button>
+    @if (facadeResult is not null)
+    {
+        <div class="alert @(facadeResult.Success ? "alert-success" : "alert-danger") py-2" style="max-width: 40rem;">
+            @if (facadeResult.Success)
+            {
+                <strong>Confirmed.</strong>
+                <span class="small">
+                    Paid via @facadeResult.Payment!.Provider, kitchen position
+                    @facadeResult.KitchenQueuePosition, notified
+                    @facadeResult.Notification!.Channel &rarr; @facadeResult.Notification.SentTo.
+                </span>
+            }
+            else
+            {
+                <strong>Rejected at @facadeResult.FailedStage:</strong>
+                <span class="small">@facadeResult.FailureReason</span>
+            }
+        </div>
+    }
+</section>
+
+@* ---------------------------------------------------------------- *@
+<section class="mb-5">
+    <h3>Checkout gate pipeline &mdash; Chain of Responsibility</h3>
+    <p class="text-muted small">
+        fraud &rarr; inventory &rarr; payment authorization. Any gate can
+        stop the chain.
+    </p>
+    <div class="row g-2 mb-2" style="max-width: 34rem;">
+        <div class="col-auto">
+            <label class="form-label small d-block">Risk flag</label>
+            <div class="btn-group btn-group-sm">
+                @foreach (var flag in new[] { "none", "new-account", "chargeback-history" })
+                {
+                    <button class="btn @(chainRisk == flag ? "btn-primary" : "btn-secondary")"
+                            @onclick="() => chainRisk = flag">@flag</button>
+                }
+            </div>
+        </div>
+        <div class="col-auto" style="max-width: 9rem;">
+            <label class="form-label small d-block">Order total</label>
+            <input type="number" step="1" class="form-control form-control-sm" @bind="chainTotal" />
+        </div>
+    </div>
+    <div class="form-check">
+        <input class="form-check-input" type="checkbox" id="chainSoldOut" @bind="chainSoldOut" />
+        <label class="form-check-label small" for="chainSoldOut">"Garlic Knots" sold out</label>
+    </div>
+    <div class="form-check mb-2">
+        <input class="form-check-input" type="checkbox" id="chainCard" @bind="chainCardOk" />
+        <label class="form-check-label small" for="chainCard">Card pre-authorized</label>
+    </div>
+    <button class="btn btn-sm btn-success mb-2" @onclick="RunChain">Run pipeline</button>
+    @if (chainDecision is not null)
+    {
+        <div class="alert @(chainDecision.Approved ? "alert-success" : "alert-danger") py-2" style="max-width: 34rem;">
+            @if (chainDecision.Approved)
+            {
+                <strong>Approved</strong> <span class="small">&mdash; every gate passed.</span>
+            }
+            else
+            {
+                <strong>Rejected by @chainDecision.RejectedBy</strong>
+                <span class="small">&mdash; @chainDecision.Reason (later gates never ran).</span>
+            }
+        </div>
+    }
+</section>
+
+@* ---------------------------------------------------------------- *@
+<section class="mb-4">
+    <h3>Order adjustments &mdash; Command</h3>
+    <p class="text-muted small">
+        Every edit is a command with <code>Execute</code>/<code>Undo</code>.
+        The invoker keeps an undo stack and an append-only audit trail.
+    </p>
+    <div class="row">
+        <div class="col-md-6">
+            <p class="mb-1">
+                <strong>Order @cmdTicket.Reference</strong>
+                @if (cmdTicket.IsCancelled) { <span class="badge bg-danger">Cancelled</span> }
+            </p>
+            <ul class="list-group mb-2">
+                @foreach (var line in cmdTicket.LineItems)
+                {
+                    <li class="list-group-item py-1">@line</li>
+                }
+            </ul>
+            <p class="small">Tip @cmdTicket.Tip.ToString("C") &middot; Total @cmdTicket.Total().ToString("C")</p>
+            <div class="btn-group-vertical btn-group-sm">
+                <button class="btn btn-outline-primary" @onclick='() => Run(new AddLineItemCommand(cmdTicket, "Garlic Knots"))'>Add "Garlic Knots"</button>
+                <button class="btn btn-outline-primary" @onclick='() => Run(new RemoveLineItemCommand(cmdTicket, "Caesar Salad"))'>Comp "Caesar Salad"</button>
+                <button class="btn btn-outline-primary" @onclick="() => Run(new ApplyTipCommand(cmdTicket, 5.00m))">Apply $5.00 tip</button>
+                <button class="btn btn-outline-danger" @onclick="() => Run(new CancelOrderCommand(cmdTicket))">Cancel order</button>
+            </div>
+            <div class="mt-2">
+                <button class="btn btn-sm btn-warning" @onclick="UndoCommand" disabled="@(!cmdInvoker.CanUndo)">Undo last</button>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="ResetCommands">Reset</button>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <h6>Audit trail</h6>
+            @if (cmdInvoker.AuditTrail.Count == 0)
+            {
+                <p class="text-muted small">No actions yet.</p>
+            }
+            else
+            {
+                <ol class="list-group list-group-numbered">
+                    @foreach (var entry in cmdInvoker.AuditTrail)
+                    {
+                        <li class="list-group-item small">
+                            <span class="text-muted">@entry.At.ToLocalTime().ToString("T")</span>
+                            &mdash; <strong>@entry.Verb</strong>: @entry.Description
+                        </li>
+                    }
+                </ol>
+            }
+        </div>
+    </div>
+</section>
+
+@* ---------------------------------------------------------------- *@
+<section class="mb-4">
+    <h3>Order history &mdash; persistence</h3>
+    <p class="text-muted small">
+        The one slice of the app that actually hits SQLite:
+        <code>OrderHistoryService</code> writes a row after every
+        successful checkout (here and on the <a href="order">customer
+        page</a>) and reads it back through EF Core.
+    </p>
+    @if (history.Count == 0)
+    {
+        <p class="text-muted small">No orders recorded yet &mdash; place one above or on the customer page.</p>
+    }
+    else
+    {
+        <table class="table table-sm" style="max-width: 48rem;">
+            <thead><tr><th>When</th><th>Via</th><th>Items</th><th>Subtotal</th><th>Status</th></tr></thead>
+            <tbody>
+                @foreach (var row in history)
+                {
+                    <tr>
+                        <td class="small">@row.PlacedAtUtc.ToLocalTime().ToString("g")</td>
+                        <td class="small">@row.PlacedVia</td>
+                        <td class="small">@row.Items</td>
+                        <td class="small">@row.Subtotal.ToString("C")</td>
+                        <td class="small">@row.Status</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+    <button class="btn btn-sm btn-outline-secondary" @onclick="RefreshHistory">Refresh</button>
+</section>
+
+@code {
+    private static readonly string[] PaymentProviders = ["Stripe", "Square", "PayPal"];
+
+    private IEnumerable<IDeliveryPricingStrategy> DeliveryStrategies =>
+        ServiceProvider.GetServices<IDeliveryPricingStrategy>();
+
+    private IEnumerable<IPaymentProcessor> PaymentProcessors =>
+        ServiceProvider.GetServices<IPaymentProcessor>();
+
+    // --- Strategy ------------------------------------------------
+    private string activeRule = "Flat rate";
+    private decimal priceSubtotal = 26.00m;
+    private decimal priceDistance = 3.0m;
+    private decimal priceDemand = 1.6m;
+
+    // --- Adapter ------------------------------------------------
+    private decimal testCharge = 19.99m;
+    private bool testDecline;
+    private readonly List<PaymentResult> chargeResults = [];
+
+    private void RunTestCharges()
+    {
+        chargeResults.Clear();
+        foreach (var processor in PaymentProcessors)
+        {
+            chargeResults.Add(processor.Charge(new PaymentRequest(
+                Amount: testCharge,
+                Currency: "USD",
+                OrderReference: $"admin-{DateTime.UtcNow:HHmmss}",
+                PaymentToken: testDecline ? "decline" : "tok_admin_ok")));
+        }
+    }
+
+    // --- Facade -----------------------------------------------
+    private readonly HashSet<string> facadeCart = ["Pepperoni Pizza"];
+    private string facadeProvider = "Stripe";
+    private PlaceOrderResult? facadeResult;
+
+    private void ToggleFacadeItem(string name, bool include)
+    {
+        if (include) facadeCart.Add(name); else facadeCart.Remove(name);
+        facadeResult = null;
+    }
+
+    private async Task PlaceOrderViaFacade()
+    {
+        var builder = ServiceProvider.GetRequiredService<OrderBuilder>()
+            .ForCustomer(SampleData.Customer)
+            .FromRestaurant(SampleData.Restaurant)
+            .AsPickup();
+        foreach (var name in facadeCart)
+            builder.AddItem(new OrderItem { MenuItem = SampleData.MenuItems.First(m => m.Name == name) });
+
+        var order = builder.Build();
+        var checkout = ServiceProvider.GetRequiredService<CheckoutFacade>();
+        facadeResult = checkout.PlaceOrder(new PlaceOrderRequest(order, facadeProvider, "tok_admin_ok"));
+
+        if (facadeResult.Success)
+        {
+            await History.RecordAsync(order, placedVia: "admin");
+            history = await History.RecentAsync();
+        }
+    }
+
+    // --- Chain of Responsibility -----------------------------
+    private string chainRisk = "none";
+    private decimal chainTotal = 38.00m;
+    private bool chainSoldOut;
+    private bool chainCardOk = true;
+    private CheckoutDecision? chainDecision;
+
+    private void RunChain()
+    {
+        var soldOut = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (chainSoldOut) soldOut.Add("Garlic Knots");
+
+        chainDecision = CheckoutPipeline.Standard(soldOut).Handle(new CheckoutContext(
+            OrderReference: "#admin",
+            OrderTotal: chainTotal,
+            Items: ["Margherita Pizza", "Garlic Knots"],
+            CustomerRiskFlag: chainRisk,
+            CardPreAuthorized: chainCardOk));
+    }
+
+    // --- Command --------------------------------------------
+    private OrderTicket cmdTicket = NewTicket();
+    private OrderCommandInvoker cmdInvoker = new();
+
+    private static OrderTicket NewTicket() => new("#4471", ["Margherita Pizza", "Caesar Salad"]);
+
+    private void Run(IOrderCommand command) => cmdInvoker.Do(command);
+    private void UndoCommand() => cmdInvoker.Undo();
+
+    private void ResetCommands()
+    {
+        cmdTicket = NewTicket();
+        cmdInvoker = new();
+    }
+
+    // --- Persistence ---------------------------------------
+    private IReadOnlyList<PlacedOrderRecord> history = [];
+
+    protected override async Task OnInitializedAsync() => history = await History.RecentAsync();
+
+    private async Task RefreshHistory() => history = await History.RecentAsync();
+}

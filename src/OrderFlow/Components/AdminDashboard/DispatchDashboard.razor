@@ -1,0 +1,216 @@
+@page "/dispatch"
+@implements IOrderStatusObserver
+@implements IDisposable
+@inject KitchenDisplayService Kitchen
+@inject OrderStatusPublisher Publisher
+
+<PageTitle>Dispatch Dashboard &mdash; OrderFlow</PageTitle>
+
+<div class="page-header">
+    <h3 class="page-title">
+        <span class="page-title-icon bg-gradient-primary text-white me-2">
+            <i class="mdi mdi-moped"></i>
+        </span>
+        Dispatch Dashboard
+    </h3>
+</div>
+
+<p class="text-muted">
+    The third <strong>Observer</strong> surface (alongside the
+    <a href="kitchen">Kitchen Display</a> and the customer
+    <a href="track">Order Tracker</a>). All three subscribe to the same
+    <code>OrderStatusPublisher</code>; each does something different with
+    the identical notification &mdash; this one only wakes up when an order
+    hits <em>Ready</em> and a driver is needed. (<code>Patterns/08-Observer</code>)
+</p>
+
+<div class="mb-3">
+    <button class="btn btn-gradient-primary btn-sm" @onclick="SimulateReadyOrder">
+        <i class="mdi mdi-plus me-1"></i>Simulate an order reaching &ldquo;Ready&rdquo;
+    </button>
+    <span class="ms-2 small text-muted">
+        Or advance a real ticket to Ready on the Kitchen Display &mdash; same singleton queue, it shows up here.
+    </span>
+</div>
+
+<div class="row">
+    <div class="col-lg-4 grid-margin stretch-card">
+        <div class="card">
+            <div class="card-body">
+                <h4 class="card-title">
+                    Needs a driver
+                    <span class="badge badge-warning ms-1">@needsDriver.Count</span>
+                </h4>
+                @if (needsDriver.Count == 0)
+                {
+                    <p class="text-muted">Nothing waiting on dispatch.</p>
+                }
+                else
+                {
+                    <ul class="list-group list-group-flush">
+                        @foreach (var t in needsDriver)
+                        {
+                            <li class="list-group-item px-0">
+                                <div><strong>#@t.OrderId.ToString()[..8]</strong> &mdash; @t.Summary</div>
+                                <div class="small text-muted mb-2">ready @t.ReceivedAt.ToLocalTime().ToString("T")</div>
+                                <button class="btn btn-sm btn-success" @onclick="() => AssignDriver(t)">
+                                    <i class="mdi mdi-account-arrow-right me-1"></i>Assign @NextDriver
+                                </button>
+                            </li>
+                        }
+                    </ul>
+                }
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4 grid-margin stretch-card">
+        <div class="card">
+            <div class="card-body">
+                <h4 class="card-title">
+                    On the road
+                    <span class="badge badge-info ms-1">@enRoute.Count</span>
+                </h4>
+                @if (enRoute.Count == 0)
+                {
+                    <p class="text-muted">No active deliveries.</p>
+                }
+                else
+                {
+                    <ul class="list-group list-group-flush">
+                        @foreach (var t in enRoute)
+                        {
+                            <li class="list-group-item px-0">
+                                <div><strong>#@t.OrderId.ToString()[..8]</strong> &mdash; @t.Summary</div>
+                                <div class="small text-muted mb-2">
+                                    driver: <strong>@DriverFor(t.OrderId)</strong>
+                                </div>
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => MarkDelivered(t)">
+                                    <i class="mdi mdi-check me-1"></i>Mark delivered
+                                </button>
+                            </li>
+                        }
+                    </ul>
+                }
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4 grid-margin stretch-card">
+        <div class="card">
+            <div class="card-body">
+                <h4 class="card-title">Dispatch log</h4>
+                <p class="small text-muted">
+                    Rendered by <code>DispatchDashboardObserver</code> &mdash; the
+                    concrete observer for this screen, reacting to the same
+                    <code>OrderStatusChange</code> stream.
+                </p>
+                @if (board.Log.Count == 0)
+                {
+                    <p class="text-muted">No dispatch activity yet.</p>
+                }
+                else
+                {
+                    <ul class="list-group list-group-flush">
+                        @foreach (var line in Enumerable.Reverse(board.Log))
+                        {
+                            <li class="list-group-item px-0 small">@line</li>
+                        }
+                    </ul>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private static readonly string[] Drivers = ["Alex", "Sam", "Jordan", "Riley", "Casey"];
+
+    private readonly Restaurant restaurant = SampleData.Restaurant;
+    private KitchenQueue queue = default!;
+    private IDisposable? subscription;
+
+    // The pattern's concrete observer for this screen — we feed it the same
+    // notifications we get and show its rendered log.
+    private readonly DispatchDashboardObserver board = new();
+
+    private readonly Dictionary<Guid, string> assignedDrivers = [];
+    private int driverCursor;
+
+    private IReadOnlyList<KitchenTicket> tickets = [];
+
+    private List<KitchenTicket> needsDriver =>
+        tickets.Where(t => t.Status == OrderStatus.Ready).ToList();
+
+    private List<KitchenTicket> enRoute =>
+        tickets.Where(t => t.Status == OrderStatus.OutForDelivery).ToList();
+
+    private string NextDriver => Drivers[driverCursor % Drivers.Length];
+
+    protected override void OnInitialized()
+    {
+        queue = Kitchen.QueueFor(restaurant);   // Singleton: shared instance
+        tickets = queue.Snapshot();
+        subscription = Publisher.Subscribe(this); // Observer: subscribe now, drop in Dispose
+    }
+
+    // Observer callback — every screen hears every change; this board only
+    // acts on the dispatch-relevant ones, but logs them all via its observer.
+    void IOrderStatusObserver.OnOrderStatusChanged(OrderStatusChange change)
+    {
+        ((IOrderStatusObserver)board).OnOrderStatusChanged(change);
+        tickets = queue.Snapshot();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private string DriverFor(Guid orderId) =>
+        assignedDrivers.TryGetValue(orderId, out var name) ? name : "unassigned";
+
+    private void AssignDriver(KitchenTicket ticket)
+    {
+        var driver = NextDriver;
+        driverCursor++;
+        assignedDrivers[ticket.OrderId] = driver;
+
+        Advance(ticket); // State: Ready -> OutForDelivery
+    }
+
+    private void MarkDelivered(KitchenTicket ticket)
+    {
+        Advance(ticket); // State: OutForDelivery -> Completed
+        queue.Remove(ticket.OrderId);
+        tickets = queue.Snapshot();
+    }
+
+    private void Advance(KitchenTicket ticket)
+    {
+        var previous = ticket.Status;
+
+        IOrderState next;
+        try
+        {
+            next = OrderStateMachine.ForStatus(ticket.Status).Advance();
+        }
+        catch (InvalidOperationException)
+        {
+            return; // terminal — nothing to do
+        }
+
+        ticket.Status = next.Status;
+        Publisher.Publish(OrderStatusChange.Between(ticket.OrderId, previous, next.Status));
+    }
+
+    private void SimulateReadyOrder()
+    {
+        var id = Guid.NewGuid();
+        var item = SampleData.MenuItems[Random.Shared.Next(SampleData.MenuItems.Count)];
+        var ticket = KitchenTicket.For(id, item.Name);
+        ticket.Status = OrderStatus.Ready;
+        queue.Enqueue(ticket);
+        tickets = queue.Snapshot();
+
+        Publisher.Publish(OrderStatusChange.Between(id, OrderStatus.Preparing, OrderStatus.Ready));
+    }
+
+    public void Dispose() => subscription?.Dispose();
+}
