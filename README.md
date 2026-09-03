@@ -71,15 +71,5 @@ Build verification while the app is running (the running exe locks `bin/`):
 dotnet build -p:UseAppHost=false -o <scratch-dir>
 ```
 
-## Book
-
-The manuscript is AsciiDoc in `/book`, and code snippets are pulled from
-real source files at build time via tagged `include::` directives — the
-printed code can't drift from the repo.
-
-```bash
-book/build-book.sh --check   # verify every include target + tag resolves
-book/build-book.sh           # generate EPUB + print PDF into book/dist
-```
 
 
