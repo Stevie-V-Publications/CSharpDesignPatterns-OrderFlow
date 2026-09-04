@@ -44,7 +44,14 @@ dotnet restore
 dotnet run
 ```
 
-Then open the URL printed in the console.
+Then open the URL printed in the console. Run the pattern test suite with:
+
+```bash
+dotnet test
+```
+
+`test/OrderFlow.Tests` has one file per pattern; each chapter's *Now It's
+Testable* section is quoted straight from it.
 
 - **Pattern Playground** (`/patterns`) — each pattern demoed in isolation, matching its book chapter.
 - **Order** (`/order`) — 3-step customer flow (menu → review → confirm): Composite, Decorator, Builder, Facade.
@@ -78,8 +85,12 @@ real source files at build time via tagged `include::` directives — the
 printed code can't drift from the repo.
 
 ```bash
-book/build-book.sh --check   # verify every include target + tag resolves
-book/build-book.sh           # generate EPUB + print PDF into book/dist
+book/build-book.sh --check   # verify every include:: + image:: target resolves
+book/build-book.sh           # render diagrams, generate EPUB + print PDFs into book/dist
 ```
+
+Chapter diagrams are Mermaid sources in `book/diagrams/`, rendered to SVG
+by `book/render-diagrams.mjs` (needs Node + `npm install` in `book/`).
+See `book/BUILDING.md`.
 
 
