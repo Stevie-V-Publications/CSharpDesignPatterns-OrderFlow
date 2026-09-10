@@ -77,6 +77,13 @@ Build verification while the app is running (the running exe locks `bin/`):
 ```bash
 dotnet build -p:UseAppHost=false -o <scratch-dir>
 ```
+## Support the Author & Future Projects
+
+If you found these code samples or the book helpful and want to support future technical guides, errata updates, or open-source samples:
+
+- 📖 **Get the Book:** [[Link to Amazon](https://www.amazon.com/dp/B0HJBYRNZ3) / [Leanpub](https://leanpub.com/OrderFlow) ]
+- ☕ **Buy Me a Coffee:** [Support on Ko-fi](https://ko-fi.com/stevie_v)
+- ⭐ **Star this repo:** If you're using this code, a star helps others find it!
 
 
 
